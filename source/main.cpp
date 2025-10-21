@@ -31,6 +31,7 @@
 #include <tesla.hpp>
 #include <utils.hpp>
 #include <set>
+#include <filesystem> //添加必要的头文件
 
 
 using namespace ult;
@@ -155,8 +156,78 @@ static tsl::elm::ListItem* lastSelectedListItem;
 //static tsl::elm::ListItem* dropdownListItem;
 
 static std::atomic<bool> lastRunningInterpreter{false};
+//国行版自动转国际版，开始
+static Result setGlobalRegion() {
+    Result rc;
+    if (R_SUCCEEDED(rc = setsysSetT(false))) {
+        if (R_SUCCEEDED(rc = setsysSetRegionCode(SetRegion_HTK))) {
+            if (R_SUCCEEDED(rc = spsmInitialize())) {
+                spsmShutdown(true);
+                spsmExit();
+            }
+        }
+    }
+    return rc;
+} //实现转到港区
 
+static void switchTencentVerToGlobalVer() {
+    Result rc;
+    std::string cfgFilePath;
 
+    bool force_switch = false;
+    cfgFilePath = std::string("sdmc:/config/") + "Ultrahand" + "/" + "force_swtich.flag"; //强制转区标记
+    if (std::filesystem::exists(cfgFilePath))
+        force_switch = true;
+
+    if (R_FAILED(rc = setsysInitialize())) {
+        fatalThrow(MAKERESULT(Module_HomebrewLoader, R_DESCRIPTION(rc)));
+        return;
+    }
+
+    if (force_switch) {
+        rc = setGlobalRegion();
+        setsysExit();
+        if (R_FAILED(rc))
+            fatalThrow(MAKERESULT(Module_HomebrewLoader, R_DESCRIPTION(rc)));
+        return;
+    }
+
+    constexpr u32 ExosphereEmummcType = 65007;
+    u64 is_emummc;
+    if (R_SUCCEEDED(rc = splInitialize())) {
+        rc = splGetConfig(static_cast<SplConfigItem>(ExosphereEmummcType), &is_emummc);
+        splExit();
+        if (R_FAILED(rc)) {
+            setsysExit();
+            fatalThrow(MAKERESULT(Module_HomebrewLoader, R_DESCRIPTION(rc)));
+            return;
+        } //只对虚拟系统执行自动转区
+
+        bool is_do_for_ofw = false;
+        cfgFilePath = std::string("sdmc:/config/") + "Ultrahand" + "/" + "enable_for_ofw.flag"; //允许真实系统转区标记
+        if (std::filesystem::exists(cfgFilePath))
+            is_do_for_ofw = true;
+        if (!is_emummc && !is_do_for_ofw) {
+            setsysExit();
+            return;
+        }
+    }
+
+    bool isTencentVersion = false;
+    if (R_FAILED(rc = setsysGetT(&isTencentVersion))) {
+        setsysExit();
+        fatalThrow(MAKERESULT(Module_HomebrewLoader, R_DESCRIPTION(rc)));
+        return;
+    } //国际版不执行自动转区
+
+    if (isTencentVersion)
+        rc = setGlobalRegion();
+      //国行版自动执行转区
+    setsysExit();
+    if (R_FAILED(rc))
+        fatalThrow(MAKERESULT(Module_HomebrewLoader, R_DESCRIPTION(rc)));
+}
+//国行版自动转国际版，结束
 
 template<typename Map, typename Func = std::function<std::string(const std::string&)>, typename... Args>
 std::string getValueOrDefault(const Map& data, const std::string& key, const std::string& defaultValue, Func formatFunc = nullptr, Args... args) {
@@ -7089,6 +7160,7 @@ public:
  * @return The application's exit code.
  */
 int main(int argc, char* argv[]) {
+    switchTencentVerToGlobalVer(); //国行版自动转国际版
     for (u8 arg = 0; arg < argc; arg++) {
         if (argv[arg][0] != '-') continue;  // Check first character
         
