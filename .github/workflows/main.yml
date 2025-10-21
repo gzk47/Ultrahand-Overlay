@@ -46,11 +46,10 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           draft: false
-          prerelease: ${{ contains(env.VERSION, 'pre-release') }}
+          # prerelease: ${{ contains(env.VERSION, 'pre-release') }}
           body: "Ultrahand v${{ env.VERSION }} 国行版自动转国际版"
           generate_release_notes: true
           files: ovlmenu.ovl
           tag_name: ${{ env.TAG }}
           name: "Ultrahand ${{ env.VERSION }}"
           make_latest: true
-          create_tag: true
