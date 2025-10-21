@@ -1,0 +1,56 @@
+name: "Build Ultrahand"
+
+on:
+  push:
+    branches:
+      - "main"
+  workflow_dispatch:
+
+jobs:
+  Build-Ultrahand:
+    name: "Release"
+    runs-on: "ubuntu-latest"
+    container: "ghcr.io/irneracoonovich/devkita64:latest"
+    steps:
+      - name: Checkout (With Submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          clean: true
+          fetch-depth: 1
+          fetch-tags: true
+
+      - name: Get & Format Valid Version
+        run: |
+          RAW_VERSION=$(awk '/^APP_VERSION[[:space:]]*:=/ {
+            gsub(/^APP_VERSION[[:space:]]*:=/, "");
+            gsub(/[[:space:]]+$/, "");
+            print $0
+          }' Makefile | tr -d '\r')
+          
+          VALID_VERSION=$(echo "$RAW_VERSION" | sed 's/[^a-zA-Z0-9.-]//g')
+          FINAL_TAG="v${VALID_VERSION:-$(git rev-parse --short HEAD)}"
+          
+          echo "VERSION=$VALID_VERSION" >> $GITHUB_ENV
+          echo "TAG=$FINAL_TAG" >> $GITHUB_ENV
+          echo "Valid tag generated: $FINAL_TAG"
+
+      - name: Build
+        run: |
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITA64=/opt/devkitpro/devkitA64
+          make V=1
+
+      - name: Release to GitHub
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          draft: false
+          prerelease: ${{ contains(env.VERSION, 'pre-release') }}
+          body: "Ultrahand v${{ env.VERSION }} 国行版自动转国际版"
+          generate_release_notes: true
+          files: ovlmenu.ovl
+          tag_name: ${{ env.TAG }}
+          name: "Ultrahand ${{ env.VERSION }}"
+          make_latest: true
+          create_tag: true
