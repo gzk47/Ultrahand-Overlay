@@ -37,7 +37,6 @@ jobs:
         run: |
           curl -sL "https://api.github.com/repos/ppkantorski/Ultrahand-Overlay/releases/latest" -o latest.json
           DOWNLOAD_URL=$(grep -oP '"browser_download_url": "\Khttps://[^"]*sdout\.zip"' latest.json | sed 's/"//g')
-          [ -n "$DOWNLOAD_URL" ] || { echo "未找到sdout.zip"; exit 1; }
           curl -sL "$DOWNLOAD_URL" -o sdout.zip
 
       - name: Replace ovlmenu.ovl in sdout.zip
@@ -46,7 +45,7 @@ jobs:
           unzip -q ../sdout.zip
           mkdir -p switch/.overlays/
           cp ../ovlmenu.ovl switch/.overlays/
-          zip -r ../sdout-modified.zip ./*
+          zip -r ../sdout.zip ./*
           cd ..
 
       - name: Release
@@ -54,8 +53,8 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           # prerelease: ${{ contains(env.VERSION, 'pre-release') }}
-          files: ovlmenu.ovl,sdout-modified.zip
+          files: ovlmenu.ovl,sdout.zip
           tag_name: ${{ env.TAG }}
-          name: "Ultrahand ${{ env.VERSION }}"
+          name: "Ultrahand Overlay ${{ env.VERSION }}"
           body: "包含最新构建“国行版自动转国际版”的 ovlmenu.ovl 和替换后的 sdout.zip"
           generate_release_notes: true
