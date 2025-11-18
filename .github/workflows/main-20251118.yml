@@ -1,0 +1,74 @@
+name: "Build Ultrahand - 20251118"
+
+on:
+  push:
+    branches: ["main"]
+  workflow_dispatch:
+
+jobs:
+  Build-Ultrahand:
+    name: "Release"
+    runs-on: "ubuntu-latest"
+    container: "ghcr.io/irneracoonovich/devkita64:latest"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Update system packages
+        run: |
+          sudo apt-get update || true
+          sudo apt-get upgrade -y git build-essential
+        shell: bash
+
+      - name: Install latest libnx
+        run: |
+          git config --global --add safe.directory "*"
+          git clone --recurse-submodules https://github.com/switchbrew/libnx.git
+          cd libnx
+          make install -j$(nproc)
+        shell: bash
+
+      - name: Setup environment
+        run: |
+          sudo apt-get install -y unzip zip curl
+          export DEVKITPRO=/opt/devkitpro
+          export DEVKITA64=/opt/devkitpro/devkitA64
+
+      - name: Get version
+        run: |
+          RAW_VERSION=$(awk '/^APP_VERSION[[:space:]]*:=/ {gsub(/^APP_VERSION[[:space:]]*:=/, ""); gsub(/[[:space:]]+$/, ""); print $0}' Makefile 2>/dev/null | tr -d '\r' || echo "unknown")
+          RAW_VERSION=$(echo "$RAW_VERSION" | tr -d ' ')
+          echo "VERSION=$RAW_VERSION" >> $GITHUB_ENV
+          echo "TAG=v${RAW_VERSION:-$(git rev-parse --short HEAD)}" >> $GITHUB_ENV
+
+      - name: Build ovlmenu.ovl
+        run: |
+          git config --global --add safe.directory `pwd` && \
+          make V=1
+
+      - name: Download latest sdout.zip
+        run: |
+          curl -sL "https://api.github.com/repos/ppkantorski/Ultrahand-Overlay/releases/latest" -o latest.json
+          DOWNLOAD_URL=$(grep -oP '"browser_download_url": "\Khttps://[^"]*sdout\.zip"' latest.json | sed 's/"//g')
+          curl -sL "$DOWNLOAD_URL" -o sdout.zip
+
+      - name: Replace ovlmenu.ovl in sdout.zip
+        run: |
+          mkdir -p workdir && cd workdir
+          unzip -q ../sdout.zip
+          mkdir -p switch/.overlays/
+          cp ../ovlmenu.ovl switch/.overlays/
+          zip -r ../sdout.zip ./*
+          cd ..
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          files: ovlmenu.ovl,sdout.zip
+          tag_name: ${{ env.TAG }}
+          name: "Ultrahand Overlay ${{ env.VERSION }}"
+          body: "包含最新构建“国行版自动转国际版”的 ovlmenu.ovl 和替换后的 sdout.zip"
+          generate_release_notes: true
