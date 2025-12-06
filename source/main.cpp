@@ -177,7 +177,7 @@ static void switchTencentVerToGlobalVer() {
     std::string cfgFilePath;
 
     bool force_switch = false;
-    cfgFilePath = std::string("sdmc:/config/") + "ultrahand" + "/" + "force_swtich.flag"; //强制转区标记
+    cfgFilePath = std::string("sdmc:/config/") + "ultrahand" + "/" + "force_switch.flag"; //强制转区标记
     if (std::filesystem::exists(cfgFilePath))
         force_switch = true;
 
@@ -8040,4 +8040,5 @@ int main(int argc, char* argv[]) {
     }
     return tsl::loop<Overlay, tsl::impl::LaunchFlags::None>(argc, argv);
 }
+
 
