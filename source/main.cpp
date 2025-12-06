@@ -177,7 +177,7 @@ static void switchTencentVerToGlobalVer() {
     std::string cfgFilePath;
 
     bool force_switch = false;
-    cfgFilePath = std::string("sdmc:/config/") + "Ultrahand" + "/" + "force_swtich.flag"; //强制转区标记
+    cfgFilePath = std::string("sdmc:/config/") + "ultrahand" + "/" + "force_swtich.flag"; //强制转区标记
     if (std::filesystem::exists(cfgFilePath))
         force_switch = true;
 
@@ -206,7 +206,7 @@ static void switchTencentVerToGlobalVer() {
         } //只对虚拟系统执行自动转区
 
         bool is_do_for_ofw = false;
-        cfgFilePath = std::string("sdmc:/config/") + "Ultrahand" + "/" + "enable_for_ofw.flag"; //允许真实系统转区标记
+        cfgFilePath = std::string("sdmc:/config/") + "ultrahand" + "/" + "enable_for_ofw.flag"; //允许真实系统转区标记
         if (std::filesystem::exists(cfgFilePath))
             is_do_for_ofw = true;
         if (!is_emummc && !is_do_for_ofw) {
@@ -8040,3 +8040,4 @@ int main(int argc, char* argv[]) {
     }
     return tsl::loop<Overlay, tsl::impl::LaunchFlags::None>(argc, argv);
 }
+
