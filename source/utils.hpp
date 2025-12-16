@@ -2218,6 +2218,7 @@ void applyReplaceIniPlaceholder(std::string& arg, const std::string& commandName
  * @brief Replaces a JSON source placeholder with the actual JSON source.
  *
  * Optimized version with variables moved to usage scope to avoid repeated allocations.
+ * Supports "null" key as a fallback default for failed lookups.
  *
  * @param arg The input string containing the placeholder.
  * @param commandName The name of the JSON command (e.g., "json", "json_file").
@@ -2256,6 +2257,9 @@ std::string replaceJsonPlaceholder(const std::string& arg, const std::string& co
     std::string key;
     bool validValue;
     
+    // Keep reference to root for "null" fallback lookups
+    cJSON* root = reinterpret_cast<cJSON*>(jsonDict.get());
+    
     while (startPos != std::string::npos) {
         endPos = arg.find(")}", startPos);
         if (endPos == std::string::npos) {
@@ -2266,7 +2270,7 @@ std::string replaceJsonPlaceholder(const std::string& arg, const std::string& co
         result.append(arg, lastPos, startPos - lastPos);
         
         nextPos = startPos + searchStringLen;
-        cJSON* value = reinterpret_cast<cJSON*>(jsonDict.get()); // Get the JSON root object
+        cJSON* value = root; // Start from root
         validValue = true;
         
         while (nextPos < endPos && validValue) {
@@ -2290,11 +2294,16 @@ std::string replaceJsonPlaceholder(const std::string& arg, const std::string& co
         }
         
         if (validValue && value && cJSON_IsString(value) && value->valuestring) {
-            result.append(value->valuestring); // Append replacement value
+            // Append the value as-is, even if it's an empty string
+            result.append(value->valuestring);
         } else {
-            // If replacement failed, keep the original placeholder
-            //result.append(arg, startPos, endPos + 2 - startPos);
-            result.append(NULL_STR);
+            // Key doesn't exist or isn't a string - try "null" fallback
+            cJSON* fallbackValue = cJSON_GetObjectItemCaseSensitive(root, NULL_STR.c_str());
+            if (fallbackValue && cJSON_IsString(fallbackValue) && fallbackValue->valuestring) {
+                result.append(fallbackValue->valuestring);
+            } else {
+                result.append(NULL_STR);
+            }
         }
         
         lastPos = endPos + 2;
@@ -3750,7 +3759,7 @@ void handleCopyCommand(const std::vector<std::string>& cmd, const std::string& p
         // Only create filterSet if filter file exists
         std::unique_ptr<std::unordered_set<std::string>> filterSet;
         if (!filterListPath.empty()) {
-            filterSet = std::make_unique<std::unordered_set<std::string>>(readSetFromFile(filterListPath));
+            filterSet = std::make_unique<std::unordered_set<std::string>>(readSetFromFile(filterListPath, packagePath));
         }
         
         const size_t listSize = std::min(sourceFilesList.size(), destinationFilesList.size());
@@ -3793,7 +3802,13 @@ void handleCopyCommand(const std::vector<std::string>& cmd, const std::string& p
         }
         
         if (sourcePath.find('*') != std::string::npos) {
-            copyFileOrDirectoryByPattern(sourcePath, destinationPath, logSource, logDestination);
+            std::unique_ptr<std::unordered_set<std::string>> filterSet;
+            if (!filterListPath.empty()) {
+                filterSet = std::make_unique<std::unordered_set<std::string>>(readSetFromFile(filterListPath, packagePath));
+            }
+            copyFileOrDirectoryByPattern(sourcePath, destinationPath, logSource, logDestination, filterSet.get());
+
+            //copyFileOrDirectoryByPattern(sourcePath, destinationPath, logSource, logDestination);
         } else {
             const long long totalSize = getTotalSize(sourcePath);
             long long totalBytesCopied = 0;
@@ -3814,7 +3829,7 @@ void handleDeleteCommand(const std::vector<std::string>& cmd, const std::string&
         // Only create filterSet if filter file exists
         std::unique_ptr<std::unordered_set<std::string>> filterSet;
         if (!filterListPath.empty()) {
-            filterSet = std::make_unique<std::unordered_set<std::string>>(readSetFromFile(filterListPath));
+            filterSet = std::make_unique<std::unordered_set<std::string>>(readSetFromFile(filterListPath, packagePath));
         }
         
         for (size_t i = 0; i < sourceFilesList.size(); ++i) {
@@ -3827,7 +3842,7 @@ void handleDeleteCommand(const std::vector<std::string>& cmd, const std::string&
             const bool shouldDelete = !filterSet || filterSet->find(sourcePath) == filterSet->end();
             
             if (shouldDelete) {
-                deleteFileOrDirectory(sourcePath);
+                deleteFileOrDirectory(sourcePath, logSource);
             }
             
             // Clear the vector element immediately to free memory
@@ -3854,7 +3869,12 @@ void handleDeleteCommand(const std::vector<std::string>& cmd, const std::string&
         
         // Perform the delete operation
         if (sourcePath.find('*') != std::string::npos) {
-            deleteFileOrDirectoryByPattern(sourcePath, logSource);
+            // Load filterSet for single path operations
+            std::unique_ptr<std::unordered_set<std::string>> filterSet;
+            if (!filterListPath.empty()) {
+                filterSet = std::make_unique<std::unordered_set<std::string>>(readSetFromFile(filterListPath, packagePath));
+            }
+            deleteFileOrDirectoryByPattern(sourcePath, logSource, filterSet.get());
         } else {
             deleteFileOrDirectory(sourcePath, logSource);
         }
@@ -3918,12 +3938,12 @@ void handleMoveCommand(const std::vector<std::string>& cmd, const std::string& p
         // Load filter sets (these are typically small)
         std::unique_ptr<std::unordered_set<std::string>> copyFilterSet;
         if (!copyFilterListPath.empty()) {
-            copyFilterSet = std::make_unique<std::unordered_set<std::string>>(readSetFromFile(copyFilterListPath));
+            copyFilterSet = std::make_unique<std::unordered_set<std::string>>(readSetFromFile(copyFilterListPath, packagePath));
         }
         
         std::unique_ptr<std::unordered_set<std::string>> filterSet;
         if (!filterListPath.empty()) {
-            filterSet = std::make_unique<std::unordered_set<std::string>>(readSetFromFile(filterListPath));
+            filterSet = std::make_unique<std::unordered_set<std::string>>(readSetFromFile(filterListPath, packagePath));
         }
     
         // Pre-allocate strings to avoid reallocations in loop
@@ -4102,7 +4122,14 @@ void handleMoveCommand(const std::vector<std::string>& cmd, const std::string& p
         
         // Perform the move operation
         if (sourcePath.find('*') != std::string::npos) {
-            moveFilesOrDirectoriesByPattern(sourcePath, destinationPath, logSource, logDestination);
+            std::unique_ptr<std::unordered_set<std::string>> filterSet;
+            if (!filterListPath.empty()) {
+                filterSet = std::make_unique<std::unordered_set<std::string>>(readSetFromFile(filterListPath, packagePath));
+            }
+            
+            moveFilesOrDirectoriesByPattern(sourcePath, destinationPath, logSource, logDestination, filterSet.get());
+
+            //moveFilesOrDirectoriesByPattern(sourcePath, destinationPath, logSource, logDestination);
         } else {
             moveFileOrDirectory(sourcePath, destinationPath, logSource, logDestination);
         }
