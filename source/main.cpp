@@ -886,9 +886,9 @@ private:
                 }
             } else if (iniKey == "sound_effects") {
                 if (actualState) {
-                    AudioPlayer::initialize();
+                    Audio::initialize();
                 } else {
-                    AudioPlayer::exit();
+                    Audio::exit();
                 }
             }
 
@@ -1747,7 +1747,7 @@ public:
 
             if (!limitedMemory && useSoundEffects) {
                 reloadSoundCacheNow.store(true, std::memory_order_release);
-                //ult::AudioPlayer::initialize();
+                //ult::Audio::initialize();
             }
             //lastRunningInterpreter.store(false, std::memory_order_release);
             return true;
@@ -2850,7 +2850,7 @@ public:
             }
             if (!limitedMemory && useSoundEffects) {
                 reloadSoundCacheNow.store(true, std::memory_order_release);
-                //ult::AudioPlayer::initialize();
+                //ult::Audio::initialize();
             }
             //lastRunningInterpreter.store(false, std::memory_order_release);
             return true;
@@ -4055,7 +4055,7 @@ public:
 
             if (!limitedMemory && useSoundEffects) {
                 reloadSoundCacheNow.store(true, std::memory_order_release);
-                //ult::AudioPlayer::initialize();
+                //ult::Audio::initialize();
             }
             //lastRunningInterpreter.store(false, std::memory_order_release);
             return true;
@@ -6273,7 +6273,7 @@ public:
 
             if (!limitedMemory && useSoundEffects) {
                 reloadSoundCacheNow.store(true, std::memory_order_release);
-                //ult::AudioPlayer::initialize();
+                //ult::Audio::initialize();
             }
             //lastRunningInterpreter.store(false, std::memory_order_release);
             return true;
@@ -6284,7 +6284,7 @@ public:
             ult::reloadWallpaper();
             if (!limitedMemory && useSoundEffects) {
                 reloadSoundCacheNow.store(true, std::memory_order_release);
-                //ult::AudioPlayer::initialize();
+                //ult::Audio::initialize();
             }
         }
     
@@ -7616,7 +7616,7 @@ public:
             }
             if (!limitedMemory && useSoundEffects) {
                 reloadSoundCacheNow.store(true, std::memory_order_release);
-                //ult::AudioPlayer::initialize();
+                //ult::Audio::initialize();
             }
             //lastRunningInterpreter.store(false, std::memory_order_release);
             return true;
@@ -7628,7 +7628,7 @@ public:
 
             if (!limitedMemory && useSoundEffects) {
                 reloadSoundCacheNow.store(true, std::memory_order_release);
-                //ult::AudioPlayer::initialize();
+                //ult::Audio::initialize();
             }
         }
 
@@ -8253,8 +8253,6 @@ public:
         };
         socketInitialize(&socketInitConfig);
 
-        unpackDeviceInfo();
-
         // read commands from root package's boot_package.ini
         if (firstBoot) {
             // Delete all pending notification jsons
@@ -8277,6 +8275,8 @@ public:
             //    tsl::notification->show("  "+ULTRAHAND_HAS_STARTED);
             
         }
+
+        unpackDeviceInfo();
         
         
         //startInterpreterThread();
@@ -8296,6 +8296,8 @@ public:
             executeIniCommands(PACKAGE_PATH + EXIT_PACKAGE_FILENAME, "exit");
 
         //cleanupCurl();
+        curl_global_cleanup();
+
         //if (!ult::limitedMemory)
         socketExit();
     }
