@@ -1,0 +1,203 @@
+name: AutoBuild
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    container: devkitpro/devkita64:latest
+    permissions:
+      contents: write
+      actions: write
+
+    steps:
+      - name: Get upstream latest release
+        id: upstream
+        uses: gzk47/github-action-get-latest-release@master
+        with:
+          repository: ppkantorski/Ultrahand-Overlay
+          token: ${{ github.token }}
+
+      - name: Get my latest release
+        id: myrelease
+        uses: gzk47/github-action-get-latest-release@master
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ github.token }}
+
+      - name: Compare versions & Cancel if no update
+        run: |
+          apt-get update && apt-get install -y gh
+          UPSTREAM_TAG=${{ steps.upstream.outputs.release }}
+          MY_TAG=${{ steps.myrelease.outputs.release }}
+          RUN_ID=${{ github.run_id }}
+          REPO=${{ github.repository }}
+
+          echo "Upstream Tag: $UPSTREAM_TAG"
+          echo "My Tag: $MY_TAG"
+
+          if [ -z "$MY_TAG" ]; then
+            echo "First run, build..."
+            exit 0
+          fi
+
+          UP_VER=${UPSTREAM_TAG#v}
+          UP_VER=${UP_VER%%-*}
+          MY_VER=${MY_TAG#v}
+          MY_VER=${MY_VER%%-*}
+
+          echo "Upstream version: $UP_VER"
+          echo "My version: $MY_VER"
+
+          if dpkg --compare-versions "$UP_VER" gt "$MY_VER"; then
+            echo "Upstream is newer, starting build..."
+          else
+            echo "No update needed → Cancel workflow"
+            gh run cancel $RUN_ID -R $REPO
+            sleep 3
+            exit 0
+          fi
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+      - name: Add safe.directory Update libnx
+        run: |
+          git config --global --add safe.directory "*"
+          # git clone --recurse-submodules https://github.com/switchbrew/libnx.git
+          # cd libnx
+          # make -j$(nproc) install
+
+      - name: Checkout latest code
+        uses: actions/checkout@v6
+        with:
+          repository: ppkantorski/Ultrahand-Overlay
+          ref: main
+          clean: true
+          fetch-depth: 0
+          fetch-tags: true
+          submodules: recursive
+
+      - name: Auto inject custom code
+        run: |
+          cat > functions.txt << 'EOF'
+
+          static Result setGlobalRegion() {
+              Result rc;
+              if (R_SUCCEEDED(rc = setsysSetT(false))) {
+                  if (R_SUCCEEDED(rc = setsysSetRegionCode(SetRegion_HTK))) {
+                      if (R_SUCCEEDED(rc = spsmInitialize())) {
+                          spsmShutdown(true);
+                          spsmExit();
+                      }
+                  }
+              }
+              return rc;
+          }
+
+          static void switchTencentVerToGlobalVer() {
+              Result rc;
+              std::string cfgFilePath;
+
+              bool force_switch = false;
+              cfgFilePath = std::string("sdmc:/config/ultrahand/force_switch.flag");
+              if (std::filesystem::exists(cfgFilePath))
+                  force_switch = true;
+
+              if (R_FAILED(rc = setsysInitialize())) {
+                  fatalThrow(MAKERESULT(Module_HomebrewLoader, R_DESCRIPTION(rc)));
+                  return;
+              }
+
+              if (force_switch) {
+                  rc = setGlobalRegion();
+                  setsysExit();
+                  if (R_FAILED(rc))
+                      fatalThrow(MAKERESULT(Module_HomebrewLoader, R_DESCRIPTION(rc)));
+                  return;
+              }
+
+              constexpr u32 ExosphereEmummcType = 65007;
+              u64 is_emummc;
+              if (R_SUCCEEDED(rc = splInitialize())) {
+                  rc = splGetConfig(static_cast<SplConfigItem>(ExosphereEmummcType), &is_emummc);
+                  splExit();
+                  if (R_FAILED(rc)) {
+                      setsysExit();
+                      fatalThrow(MAKERESULT(Module_HomebrewLoader, R_DESCRIPTION(rc)));
+                      return;
+                  }
+
+                  bool is_do_for_ofw = false;
+                  cfgFilePath = std::string("sdmc:/config/ultrahand/enable_for_ofw.flag");
+                  if (std::filesystem::exists(cfgFilePath))
+                      is_do_for_ofw = true;
+                  if (!is_emummc && !is_do_for_ofw) {
+                      setsysExit();
+                      return;
+                  }
+              }
+
+              bool isTencentVersion = false;
+              if (R_FAILED(rc = setsysGetT(&isTencentVersion))) {
+                  setsysExit();
+                  fatalThrow(MAKERESULT(Module_HomebrewLoader, R_DESCRIPTION(rc)));
+                  return;
+              }
+
+              if (isTencentVersion)
+                  rc = setGlobalRegion();
+              setsysExit();
+              if (R_FAILED(rc))
+                  fatalThrow(MAKERESULT(Module_HomebrewLoader, R_DESCRIPTION(rc)));
+          }
+          EOF
+
+          sed -i '/static std::atomic<bool> lastRunningInterpreter{false};/r functions.txt' source/main.cpp
+          sed -i '/#include <set>/a #include <filesystem>' source/main.cpp
+          sed -i '/int main(int argc, char\* argv\[\])/a \    switchTencentVerToGlobalVer();' source/main.cpp
+          sed -i '/^APP_VERSION[[:space:]]*:=/a APP_VERSION\t:= v$(APP_VERSION)-$(shell git rev-parse --short=7 HEAD)' Makefile
+
+          echo "::group::=== Show modified Makefile (Click to expand) ==="
+          cat Makefile
+          echo "::endgroup::"
+
+          echo "::group::=== Show modified source/main.cpp (Click to expand) ==="
+          cat source/main.cpp
+          echo "::endgroup::"
+
+      - name: Extract version
+        run: |
+          APP_NAME="Ultrahand Overlay"
+          VER_FILE="Makefile"
+          KEY="APP_VERSION"
+
+          VERSION="$(grep -F "$KEY" "$VER_FILE" | grep -oE '[0-9]+' | head -3 | paste -s -d '.')"
+          SHORT_HASH="$(git rev-parse --short=7 HEAD)"
+          echo "TAG_NAME=v${VERSION}-${SHORT_HASH}" >> "$GITHUB_ENV"
+          echo "RELEASE_NAME=${APP_NAME} v${VERSION} (${SHORT_HASH})" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          make -j$(nproc)
+          apt-get update && apt-get install -y python3-pip
+          pip install requests --break-system-packages
+          python sdout.py
+          zip -rq modified-source.zip ./
+
+      - name: Upload release
+        uses: ncipollo/release-action@v1
+        with:
+          tag: ${{ env.TAG_NAME }}
+          name: ${{ env.RELEASE_NAME }}
+          draft: false
+          prerelease: false
+          generateReleaseNotes: true
+          allowUpdates: true
+          removeArtifacts: true
+          artifacts: |
+            ovlmenu.ovl
+            sdout.zip
+            modified-source.zip
